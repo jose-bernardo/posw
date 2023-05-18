@@ -31,7 +31,7 @@ def compute(id, n, hash_function = None):
 
         id = next_node(id, n)
 
-n = 4
+n = int(input("depth n: "))
 
 debug_tree = {}
 

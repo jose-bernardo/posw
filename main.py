@@ -20,28 +20,25 @@ M = (t + n · t + 1 + 2m+1)w
 """
 
 
-def sha256H(chi: bytes, b: bytes) -> str:
+def sha256H(chi: bytes, node : str, labels : list[str]) -> str:
 
     m = sha256()
     m.update(chi)
-    m.update(b)
+    m.update(node.encode('utf-8'))
+    m.update("".join(labels).encode('utf-8'))
 
     return m.hexdigest() 
 
-def printer(labels):
-    return "|".join(map(lambda id : str(bin(id)[3:]), labels))
+def printer(chi : bytes, node : str, labels : list[str]) -> str:
+    string = node + "|" if labels else node
+    return string + "|".join([label.split("|", 1)[0] for label in labels])
 
-def main():
-    n = int(input("depth n: "))
-    chi = get_random_bytes(32)
 
-    debug_tree = compute(n, chi, sha256H)
-    print(mnel.dumps(debug_tree, indent=2))
 
-def str_node(node : int):
+def str_node(node : int) -> str:
     return str(bin(node))[3:]
 
-def next_node(id : int, size : int, n : int):
+def next_node(id : int, size : int, n : int) -> int:
     
     # 0001 -> 000
 
@@ -57,48 +54,59 @@ def next_node(id : int, size : int, n : int):
     # id -> 00000
     # id -> 0
 
-    #print_node(id)
-    #print_node(id + 1)
-    #print(f"{id=} {n=} {size=}")
-    #print_node(id + 1)
-    #print()
     if id % 2 == 1:
         return (id >> 1, size - 1)
     else:
         return ((id + 1) << (n - size), n)
-    #(id[:-1] + "1").ljust(n, '0')
-        #return id[:-1] + "1" + "0" * (n - len(id))
 
-def compute(n : int, chi : bytes, H=sha256H):
-    debug_tree = {}
+def compute(n : int, m : int, chi : bytes, H=sha256H) -> dict[str, str]:
+    tree = {}
     id = 1 << n
     size = n
 
-    parent_labels = []
+    label_stack = []
     
     while (size >= 0):
-        print(id)
-        print(f"{parent_labels= }")
+        print(str_node(id))
+        print(f"{label_stack= }")
 
-        to_hash = str(id) + ''.join(map(str_node, parent_labels))
+        #to_hash = str(id) + ''.join(map(str_node, label_stack))
+        #print(f"{to_hash=}")
         if (size < n):
-            #parent_tables[-2]
-            debug_tree[str_node(id)] = H(chi, to_hash.encode())
+            label = H(chi, str_node(id), label_stack[-2:])
         else:
-            #parent_tables
-            debug_tree[str_node(id)] = H(chi, to_hash.encode())
+            label = H(chi, str_node(id), label_stack)
 
-        if (size < n):
-            parent_labels.pop()
-            parent_labels.pop()
+        if size <= m : 
+            tree[str_node(id)] = label 
 
-        parent_labels.append(id)
+        if size < n:
+            label_stack.pop()
+            label_stack.pop()
 
-        print(f"og node: {id=} {size=}")
+        label_stack.append(label)
+
+#        print(f"og node: {id=} {size=}")
         id, size = next_node(id, size, n)
-        print(f"next node: {id=} {size=}")
+#        print(f"next node: {id=} {size=}")
+    
+    return tree
 
-    return debug_tree
+def main():
+    n = int(input("tree depth n: "))
+
+    chi = get_random_bytes(32)
+
+    m = int(input("memory tree depth m: "))
+
+    if input("printer mode(Y/n): " ).casefold() == "y":
+        f = printer
+    else:
+        f = sha256H
+    
+    tree = compute(n, m, chi, f)
+
+    print(mnel.dumps(tree, indent=2))
 
 
 if __name__ == "__main__":
