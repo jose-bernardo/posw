@@ -19,65 +19,23 @@ M = (t + n · t + 1 + 2m+1)w
 
 """
 
-def H(b: bytes) -> bytes:
+
+def RO(chi: bytes, b: bytes) -> bytes:
 
     m = sha256()
-    #m.update(get_random_bytes(32))
-    m.update(b"secret")
+    m.update(chi)
     m.update(b)
 
     return m.digest() 
 
 def main():
     n = int(input("depth n: "))
-    #n = 4
-    #print("n:", n)
+    chi = get_random_bytes()
 
-    #t = int(input("security t: "))
-    #t = 0
-    #print("t:", t)
-
-    #w = 32
-    #X = get_random_bytes(w)
-
-    #N = (1 << n + 1) - 1
-
-    # h = compute_hash(n, 1, [])
-    # print(h)
-    #node = 0b100
-    #size = 2
-    #print_node(node)
-    #node, size = next_node(node, size, n)
-    #print_node(node)
-    #node, size = next_node(node, size, n)
-    #print_node(node)
-    #node, size = next_node(node, size, n)
-    #print_node(node)
-    #print_node(node)
-    #node, size = next_node(node, size, n)
-    #print_node(node)
-
-    compute(n, printer)
+    compute(n, chi, printer)
     print (mnel.dumps(debug_tree, indent=2))
 
-def compute_hash(n: int, id: int, leaves):
-    if n < 0:
-        return b"";
 
-    l = compute_hash(n - 1, id << 1, leaves)
-    r = compute_hash(n - 1, (id << 1) + 1, leaves)
-
-    print(str(bin(id)))
-
-    s = l + r
-
-    if n == 0:
-        leaves.append(id)
-
-    if id % 2 == 0:
-        s += b''.join(list(map(H, map(bytes, leaves))))
-
-    return H(s)
 
 def printer(labels):
     return "|".join(map(lambda id : str(bin(id)[3:]), labels))
@@ -113,21 +71,23 @@ def next_node(id : int, size : int, n : int):
     #(id[:-1] + "1").ljust(n, '0')
         #return id[:-1] + "1" + "0" * (n - len(id))
 
-def compute(n, hash_function = H):
+def compute(n : int, chi : bytes, H = RO):
     id = 1 << n
     size = n
 
     parent_labels = []
     
-    
+    #'{0:0256b}'.format(int(h.hexdigest(), 16))
     while (size != 0):
         print(id)
         print(f"{parent_labels= }")
 
         if (size < n):
-            debug_tree[str_node(id)] = hash_function([id] + parent_labels[-2:])
+            #parent_tables[-2]
+            debug_tree[str_node(id)] = H(chi, )
         else:
-            debug_tree[str_node(id)] = hash_function([id] + parent_labels)
+            #parent_tables
+            debug_tree[str_node(id)] = H(chi, )
 
         if (size < n):
             parent_labels.pop()
