@@ -34,13 +34,11 @@ def printer(chi : bytes, node : str, labels : list[str]) -> str:
     string = node + "|" if labels else node
     return string + "|".join([label.split("|", 1)[0] for label in labels])
 
-
-
 def str_node(node : int) -> str:
     return str(bin(node))[3:]
 
-def next_node(id : int, size : int, n : int) -> int:
-    
+def next_node(id : int, size : int, n : int) -> tuple:
+
     if id % 2 == 1:
         return (id >> 1, size - 1)
     else:
@@ -52,7 +50,7 @@ def posw(n : int, m : int, chi : bytes, H=sha256H) -> dict[str, str]:
     size = n
 
     label_stack = []
-    
+
     while (size >= 0):
         # print(str_node(id))
         # print(f"{label_stack= }")
@@ -74,21 +72,62 @@ def posw(n : int, m : int, chi : bytes, H=sha256H) -> dict[str, str]:
 #        print(f"og node: {id=} {size=}")
         id, size = next_node(id, size, n)
 #        print(f"next node: {id=} {size=}")
-    
+
     return tree
 
-def generate_challenge(N : int, t : int) -> list[int]:
+def generate_challenge(N : int, n :int, t : int) -> set[int]:
     challenge = set()
     while len(challenge) < t:
-         challenge.add(randint(0, N - 1))
+        #challenge.add((1 << n) + randint(0, N - 1))
+        challenge.add(randint(0, N - 1))
     return challenge
     #return sample(range(0, N), t)
 
-def open(tree: dict[str, str], challenge: list[int]) -> list[str]:
-    labels = [] 
-    for leaf in challenge:
-        labels.append(tree[str(bin(leaf))[3:]])
-    return labels
+#
+# 
+# labels necessarios para folha n: 
+# n ^ 1
+# guardar
+# n >> 1 
+# repetir
+#
+# 0000 -> 0001 
+# 01
+# 0100
+
+# while n != £
+#     xor
+#     guarda
+#     shift
+
+# 0000 -> precisa destes todos: 0001, 001, 01, 1
+# 0001 -> 0000, 001, 01, 1
+
+# 0010 -> rpecisa -> 0011, 000, 01, 1
+
+# se o nó pertence ao set(001, 001, 01, 1, 0011, 000, 01, 1)
+# se sim, entao guarda a hash para enviarmos depois
+# se for uma caca
+# compute a arvore: if label in needed_labels, guarda sff.
+#
+def open(tree: dict[str, str], challenge: set[int], n: int) -> list[str]:
+    needed_labels = set()
+    dic = {}
+    for og_id in challenge:
+        og_id = (1 << n) + og_id
+        id = og_id
+        #og_id = str_node(og_id)
+        dic[og_id] = [id]       
+
+        for i in range(n):
+            id ^= 1
+            needed_labels.add(id)
+            dic[og_id].append(id)
+            
+            id = id >> 1
+    
+    print(dic)
+    print(needed_labels)
 
 def verify():
     pass
@@ -97,26 +136,26 @@ def main():
     # change to args
     n = int(input("Tree depth n: "))
     N = 1 << (n + 1) - 1
-    
+
     w = 256
     chi = get_random_bytes(w//8)
-    
+
     t = int(input("Security parameter t: "))
-    
+
     if ( t > 1 << n):
         print("** Security parameter t lowered to number of leafs 2**n")
         t = 1 << n
         print(f"** Updated t to: {t}", )
 
     m = int(input("Memory tree depth m: "))
-    
+
     M =  (t + n * t + 1 + 1 << (m+1)) * w
 
     if input("printer mode(Y/n): " ).casefold() == "y":
         f = printer
     else:
         f = sha256H
-    
+
 
     print("\nParameters: ")
     print(f"{n=}")
@@ -125,12 +164,15 @@ def main():
     print(f"{m=}")
     print(f"{M=}\n")
 
-    #tree = compute_posw(n, m, chi, f)    
-    
+    tree = posw(n, m, chi, f)    
+
     #print(mnel.dumps(tree, indent=2))
-    challenge = generate_challenge(N, t)
-    print(challenge)
-    print(len(challenge))
+    challenge = generate_challenge(N, n, t)
+    print(list(map(str_node, challenge)))
+
+    
+
+    open(tree, challenge, n)
 
 
 if __name__ == "__main__":
