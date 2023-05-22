@@ -133,27 +133,64 @@ def generate_challenge(N : int, n :int, t : int) -> list[int]:
 # se for uma caca
 # compute a arvore: if label in needed_labels, guarda sff.
 
-def open_nodes(tree: dict[str, str], challenge: list[int], n : int) -> list[tuple[str,dict[str, str]]]:
-    needed_labels = set()
+def outerspace_posw(n : int, m : int, chi : bytes, tree : dict[str, str], H=sha256H) -> dict[str, str]:
+    id = 1 << m
+    size = n
+
+    #id >> (n - size) + 1
+    label_stack = []
+
+    while (size >= 0):
+        # print(str_node(id))
+        # print(f"{label_stack= }")
+
+        if (size < n):
+            label = H(chi, str_node(id), label_stack[-2:])
+        else:
+            label = H(chi, str_node(id), label_stack)
+
+        if size < n:
+            label_stack.pop()
+            label_stack.pop()
+
+        label_stack.append(label)
+
+#        print(f"og node: {id=} {size=}")
+        id, size = next_node(id, size, n)
+#        print(f"next node: {id=} {size=}")
+
+    return tree
+
+def open_nodes(tree: dict[str, str], challenge: list[int], n : int, m : int) -> list[tuple[str,dict[str, str]]]:
+
+    needed_labels = [set() for _ in range(1 << m)]
     dic = {}
     for og_id in challenge:
+        
+        bucket_id = og_id >> (n - m)
+
         og_id = (1 << n) + og_id
-        
         id = og_id
-        
+
         og_id = str_node(og_id)
 
         dic[og_id] = [id]       
 
+        #bucket_id = (id ^ (1 << (n))) // (1 << m)
+        print(bucket_id)
         for i in range(n):
             id ^= 1
-            needed_labels.add(id)
+            if i <  (n - m):
+                print(str_node(id))
+                needed_labels[bucket_id].add(id)
+                #needed_labels[((id ^ (1 << (n - i))) >> (m - i))].add(id)
             dic[og_id].append(id)
             
             id = id >> 1
     
     print(dic)
-    print(needed_labels)
+    for bucket in needed_labels:
+        print(list(map(str_node, bucket)))
 
     # m = n case only
     reply = []
@@ -265,11 +302,11 @@ def main():
     print("Tree: " + mnel.dumps(tree, indent=2))
     challenge = generate_challenge(N, n, t)
 
-    #print(list(map(str_node, challenge)))
-    print(f"{challenge=}")
+    print(list(map(bin, challenge)))
+    #print(f"{challenge=}")
     
 
-    reply = open_nodes(tree, challenge, n)
+    reply = open_nodes(tree, challenge, n, m)
     print(f"{reply=}")
 
     result = verify(chi, n, tree[""], challenge, reply, hash_f)
