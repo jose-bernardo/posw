@@ -1,11 +1,34 @@
 #!/usr/bin/env python3
 
-from Crypto.Random import get_random_bytes
-from Crypto.Random.random import sample, randint
 from hashlib import sha256
-
 import json as mnel
 
+from Crypto.Random import get_random_bytes
+from Crypto.Random.random import randint
+
+
+
+# class Node:
+#     def __init__(self, value : int, size : int):
+#         self.value = value
+#         self.size = size
+ 
+#     def __add__(self, n : int):
+#         return self.value + n
+    
+#     def __sub__(self, n : int):
+#         return self.value - n
+    
+#     def __lshift__(self, n : int):
+#         return self.value - n
+    
+#     def __rshift__(self, n : int):
+#         return self.value - n
+    
+#     def __mod__(self, n : int):
+#         return self.value - n
+
+    
 
 """
 N The time parameter which we assume is of the form N = 2n+1 − 1 for
@@ -75,12 +98,12 @@ def posw(n : int, m : int, chi : bytes, H=sha256H) -> dict[str, str]:
 
     return tree
 
-def generate_challenge(N : int, n :int, t : int) -> set[int]:
+def generate_challenge(N : int, n :int, t : int) -> list[int]:
     challenge = set()
     while len(challenge) < t:
         #challenge.add((1 << n) + randint(0, N - 1))
         challenge.add(randint(0, N - 1))
-    return challenge
+    return list(challenge)
     #return sample(range(0, N), t)
 
 #
@@ -109,14 +132,17 @@ def generate_challenge(N : int, n :int, t : int) -> set[int]:
 # se sim, entao guarda a hash para enviarmos depois
 # se for uma caca
 # compute a arvore: if label in needed_labels, guarda sff.
-#
-def open(tree: dict[str, str], challenge: set[int], n: int) -> list[str]:
+
+def open_nodes(tree: dict[str, str], challenge: list[int], n : int) -> list[tuple[str,dict[str, str]]]:
     needed_labels = set()
     dic = {}
     for og_id in challenge:
         og_id = (1 << n) + og_id
+        
         id = og_id
-        #og_id = str_node(og_id)
+        
+        og_id = str_node(og_id)
+
         dic[og_id] = [id]       
 
         for i in range(n):
@@ -129,8 +155,78 @@ def open(tree: dict[str, str], challenge: set[int], n: int) -> list[str]:
     print(dic)
     print(needed_labels)
 
-def verify():
-    pass
+    # m = n case only
+    reply = []
+    for id in challenge:
+        id = (1 << n ) + id
+        label = tree[str_node(id)]
+        path = {}
+        
+        for path_id in dic[str_node(id)]:
+            if path_id != id:
+                path[str_node(path_id)] = tree[str_node(path_id)]
+        
+        reply.append((label, path))
+    
+    return reply
+
+
+def get_parents(leaf : int, n : int) -> list[str]:
+    parents = []
+    original_leaf = leaf
+    for _ in range(n):
+        if leaf % 2 == 1:
+            parents.insert(0, str_node(leaf ^ 1))
+        leaf = leaf >> 1
+    
+    print(f"Parents of {str_node(original_leaf)} : {parents}")
+    return parents
+    
+    
+    
+
+def verify(chi : bytes, n : int, root : str, challenges : list[int], reply : list[tuple[str, dict[str, str]]], H=sha256H) -> bool:
+
+    for i in range(len(challenges)):
+        leaf = (1 << n)  + challenges[i]
+        parents = get_parents(leaf, n)
+        label, path_labels = reply[i]
+        
+        # verify if leaf label is correct
+        parent_labels = []
+        for parent in parents:
+            if parent not in path_labels:
+                print(f"Parent {parent} of node {str_node(leaf)} not in reply: {path_labels.keys()}")
+                return False
+            parent_labels.append(path_labels[parent])
+        
+        if label != H(chi, str_node(leaf), parent_labels):
+            print(f"Label of leaf  {str_node(leaf)} is incorrect.")
+            return False
+        
+        # verify if root is correct
+        node = leaf
+        for _ in range(n):
+            sibling = node ^ 1
+            if node % 2 == 0:
+                parents = [label, path_labels[str_node(sibling)]]
+            else:
+                parents = [path_labels[str_node(sibling)], label]
+            
+            node = node >> 1
+            label = H(chi, str_node(node), parents)
+
+            print(f"node = {str_node(node)} {label = }")
+            
+        
+        if label != root:
+            print(f"{label = } {root = }")
+            print(f"Root is incorrect from leaf {str_node(leaf)}.")
+            return False
+
+    return True
+
+
 
 def main():
     # change to args
@@ -152,9 +248,9 @@ def main():
     M =  (t + n * t + 1 + 1 << (m+1)) * w
 
     if input("printer mode(Y/n): " ).casefold() == "y":
-        f = printer
+        hash_f = printer
     else:
-        f = sha256H
+        hash_f = sha256H
 
 
     print("\nParameters: ")
@@ -164,15 +260,24 @@ def main():
     print(f"{m=}")
     print(f"{M=}\n")
 
-    tree = posw(n, m, chi, f)    
+    tree = posw(n, m, chi, hash_f)    
 
-    #print(mnel.dumps(tree, indent=2))
+    print("Tree: " + mnel.dumps(tree, indent=2))
     challenge = generate_challenge(N, n, t)
-    print(list(map(str_node, challenge)))
 
+    #print(list(map(str_node, challenge)))
+    print(f"{challenge=}")
     
 
-    open(tree, challenge, n)
+    reply = open_nodes(tree, challenge, n)
+    print(f"{reply=}")
+
+    result = verify(chi, n, tree[""], challenge, reply, hash_f)
+    
+    if (result):
+        print("Verify succeeded")
+    else:
+        print("Verify failed")
 
 
 if __name__ == "__main__":
