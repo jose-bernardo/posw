@@ -3,47 +3,54 @@
 from hashlib import sha256
 from typing import Callable
 import json as mnel
+import sys
 
 from Crypto.Random import get_random_bytes
 from Crypto.Random.random import randint
 
 RandomOracleType = Callable[[bytes, str, list[str]], str]
 
-#ROOT = ""
-ROOT = "0b1"
+class Node:
+    def __init__(self, value : int, size : int):
+        self.value = value
+        self.size = size
 
-# class Node:
-#     def __init__(self, value : int, size : int):
-#         self.value = value
-#         self.size = size
- 
-#     def __add__(self, n : int):
-#         return self.value + n
+    def __add__(self, n : int):
+        return Node(self.value + n, self.size)
     
-#     def __sub__(self, n : int):
-#         return self.value - n
-    
-#     def __lshift__(self, n : int):
-#         return self.value - n
-    
-#     def __rshift__(self, n : int):
-#         return self.value - n
-    
-#     def __mod__(self, n : int):
-#         return self.value - n
+    def __xor__(self, n : int):
+        return Node(self.value ^ n, self.size)
+  
+    def __lshift__(self, n : int):
+        return Node(self.value << n, self.size + n)
+  
+    def __rshift__(self, n : int):
+        assert n <= self.size
+        return Node(self.value >> n, self.size - n)
+  
+    def __mod__(self, n : int):
+        assert n != 0
+        return self.value % n
 
-"""
-N The time parameter which we assume is of the form N = 2n+1 − 1 for
-an integer n ∈ N.
-H : {0, 1} ≤ w(n+1) → {0, 1}
-w the hash function, which for the security proof
-is modelled as a random oracle, and which takes as inputs strings of
-length up to w(n + 1) bits.
-t A statistical security parameter.
-M Memory available to P, we assume it’s of the form
-M = (t + n · t + 1 + 2m+1)w
+    def __eq__(self, other) -> bool:
+         return type(other) == Node and self.value == other.value and self.size == other.size
 
-"""
+    def __hash__(self) -> bool:
+        return self.value
+
+    def __str__(self):
+        if self.size == 0:
+            return "e"
+        return bin(self.value)[2:2 + self.size].zfill(self.size)
+
+    def __repr__(self):
+        return str(self)    
+
+    def next_node(self, max_depth : int) -> tuple:
+        if self.value % 2 == 1:
+            return Node(self.value >> 1, self.size - 1)
+        else:
+            return Node((self.value + 1) << (max_depth - self.size), max_depth)
 
 
 def sha256H(chi: bytes, node : str, labels : list[str]) -> str:
@@ -59,180 +66,139 @@ def printer(chi : bytes, node : str, labels : list[str]) -> str:
     string = node + "|" if labels else node
     return string + "|".join([label.split("|", 1)[0] for label in labels])
 
-def str_node(node : int) -> str:
-    return str(bin(node)) #[3:]
-
-def next_node(id : int, size : int, n : int) -> tuple:
-
-    if id % 2 == 1:
-        return (id >> 1, size - 1)
-    else:
-        return ((id + 1) << (n - size), n)
-
 def posw(chi: bytes, n : int, m : int, H: RandomOracleType) -> dict[str, str]:
     tree = {}
-    id = 1 << n
-    size = n
+    node = Node(0,n) # initial leaf {0}*n
 
     label_stack = []
 
-    while (size >= 0):
-        # print(str_node(id))
-        # print(f"{label_stack= }")
+    while (node.size > 0):
 
-        if (size < n):
-            label = H(chi, str_node(id), label_stack[-2:])
+        if (node.size < n):
+            label = H(chi, str(node), label_stack[-2:])
         else:
-            label = H(chi, str_node(id), label_stack)
+            label = H(chi, str(node), label_stack)
 
-        if size <= m : 
-            tree[str_node(id)] = label 
-        
-        tree[str_node(id)] = label # TODO TMP
+        if node.size <= m: # don't save if no memory
+            tree[str(node)] = label
 
-        if id == 0b101:
-            print(f"\n VAI DAR AQUI BARRACA {str_node(id)}\n label: {label}\n\
-                  {label_stack = }\n\
-                  {chi = } \n")
-        
-        if size < n:
+        if node.size < n:
             label_stack.pop()
             label_stack.pop()
-
+        
         label_stack.append(label)
 
-#        print(f"og node: {id=} {size=}")
-        id, size = next_node(id, size, n)
-#        print(f"next node: {id=} {size=}")
+        node = node.next_node(n)
 
+    label = H(chi, str(node), label_stack)
+    tree[str(node)] = label
+    
     return tree
 
 def generate_challenge(N : int, n :int, t : int) -> list[int]:
     challenge = set()
     while len(challenge) < t:
-        #challenge.add((1 << n) + randint(0, N - 1))
-        challenge.add(randint(0, N - 1))
+        challenge.add(Node(randint(0, N - 1), n))
     return list(challenge)
-    #return sample(range(0, N), t)
 
-def outerspace_posw(chi : bytes, n : int, tree : dict[str, str], initial_stack: list[str], needed_labels : set[int], leaf : int, H: RandomOracleType) -> dict[str, str]:
-    id = leaf
-    size = n
-
-    labels = {}
-    #id >> (n - size) + 1
+    
+def optimized_posw(chi : bytes, n : int, tree : dict[str, str], initial_stack: list[str], missing_labels : set[int], leaf : int, H: RandomOracleType) -> dict[str, str]:
+    node = leaf
     label_stack = initial_stack
 
-    while (needed_labels):
-        
-        # print(f"current node: {str_node(id)}")
-        # print(f"{label_stack = }")
-        # print(f"needed labels: {list(map(str_node, needed_labels))}")
+    # while labels in subtree are still needed
+    while (missing_labels):
 
-        if (size < n):
-            label = H(chi, str_node(id), label_stack[-2:])
-            # label_stack.pop()
-            # label_stack.pop()
+        if (node.size < n):
+            label = H(chi, str(node), label_stack[-2:])
         else:
-            label = H(chi, str_node(id), label_stack)
-
- 
-
-        if str_node(id) in tree:
-            print(f"\nBARRACA TOTAL {str_node(id)}\n prev: {tree[str_node(id)]} \nnew: {label}\n\
-                  {label_stack = }\n \
-                  {chi = }\n")
-        
-        if size < n:
+            label = H(chi, str(node), label_stack)
+    
+        if node.size < n:
             label_stack.pop()
             label_stack.pop()
 
         label_stack.append(label)
-
         
         
-        tree[str_node(id)] = label
+        # needed label computed, remove from missing labels
+        if str(node) in missing_labels: 
+            tree[str(node)] = label
+            missing_labels.remove(str(node))
 
-        if id in needed_labels:
-            tree[str_node(id)] = label
-            needed_labels.remove(id)
-#        print(f"og node: {id=} {size=}")
-        id, size = next_node(id, size, n)
-#        print(f"next node: {id=} {size=}")
+        node = node.next_node(n)
     
-    # print("Tree: " + mnel.dumps(tree, indent=2))
-
     return tree
 
-def open_nodes(chi: bytes, n : int , m : int, tree: dict[str, str], challenge: list[int], H: RandomOracleType) -> list[tuple[str,dict[str, str]]]:
+def open_nodes(chi: bytes, n : int, m : int, tree: dict[str, str], challenge: list[Node], H: RandomOracleType) -> list[tuple[str,dict[str, str]]]:
+    
+    # nodes needed to answer challenge
+    dependencies = {}
+    
+    # needed labels that are not in memory
+    missing_labels = [set() for _ in range(1 << m)] 
 
-    needed_labels = [set() for _ in range(1 << m)]
-    dic = {}
-    for og_id in challenge:
+    for leaf in challenge:
+        subtree = leaf.value >> (n - m) # find which subtree the leaf belongs     
         
-        bucket_id = og_id >> (n - m)
-
-        og_id = (1 << n) + og_id
-        id = og_id
-
-        og_id = str_node(og_id)
-
-        dic[og_id] = [id]       
-
-        #bucket_id = (id ^ (1 << (n))) // (1 << m)
-        # print(bucket_id)
-        needed_labels[bucket_id].add(id)
+        # track node dependencies and missing labels in the depth robust graph
+        dependencies[str(leaf)] = []
+        
+        node = leaf
+        missing_labels[subtree].add(str(node))
+        
+        # discover the path to root for each challenge
         for i in range(n):
-            id ^= 1
-            if i <  (n - m):
-                # print(str_node(id))
-                needed_labels[bucket_id].add(id)
-                #needed_labels[((id ^ (1 << (n - i))) >> (m - i))].add(id)
-            dic[og_id].append(id)
+            node ^= 1
             
-            id = id >> 1
+            dependencies[str(leaf)].append(str(node))
+
+            # discover labels that were not saved in posw
+            if i < (n - m):
+                missing_labels[subtree].add(str(node)) 
+                
+            node = node >> 1
             
-    print(f"path nodes: {dic}")
+    initial_leaf = Node(0, n)
     
-    initial_leaf = (1 << n)
-    
-    for i in range(len(needed_labels)):
+    for i in range(len(missing_labels)):
+
+        if len(missing_labels[i]) == 0:
+            initial_leaf += 1 << (n - m)
+            continue # sub tree not needed
+
         
-        parent_node = i + (1 << m)
+        # node parent of the subtree
+        parent_node = Node(i, m)
+        
         initial_stack = []
 
-        # if parent_node % 2 == 1:
-        #     parent_node ^= 1
-        #     initial_stack.append(tree[str_node(parent_node)])
-        
-        while(parent_node > 1): # not the empty number
+        # get parents of first node of subtree
+        while(parent_node.size != 0):
+
             if parent_node % 2 == 1:
                 parent_node ^= 1
-                print(f"parent_node era impar: {str_node(parent_node)}")
-                initial_stack.insert(0, tree[str_node(parent_node)])
+                initial_stack.insert(0, tree[str(parent_node)])
 
-            
             parent_node = parent_node >> 1
         
-        print(f"{i = }\n {initial_stack = }\n \
-              initial leaf = {str_node(initial_leaf)}\n\
-              needed labels ={list(map(str_node, needed_labels[i]))}")
+
         
-        outerspace_posw(chi, n, tree, initial_stack, needed_labels[i], initial_leaf, H)
+        # computes missing labels in subtree
+        optimized_posw(chi, n, tree, initial_stack, missing_labels[i], initial_leaf, H)
 
-        initial_leaf += 1 << ((n - m))
-    
-    print("Tree: " + mnel.dumps(tree, indent=2))
+        initial_leaf += 1 << (n - m)
 
+    # constructs replies to challenges
     reply = []
-    for id in challenge:
-        id = (1 << n ) + id
-        label = tree[str_node(id)]
+    for leaf in challenge:
+        label = tree[str(leaf)]
         path = {}
         
-        for path_id in dic[str_node(id)]:
-            if path_id != id:
-                path[str_node(path_id)] = tree[str_node(path_id)]
+        for path_id in dependencies[str(leaf)]:
+            #if path_id != leaf:
+            path[path_id] = tree[str(path_id)]
+                                    
         
         reply.append((label, path))
     
@@ -240,110 +206,133 @@ def open_nodes(chi: bytes, n : int , m : int, tree: dict[str, str], challenge: l
 
 def get_parents(leaf : int, n : int) -> list[str]:
     parents = []
-    original_leaf = leaf
     for _ in range(n):
         if leaf % 2 == 1:
-            parents.insert(0, str_node(leaf ^ 1))
+            parents.insert(0, str(leaf ^ 1))
         leaf = leaf >> 1
     
-    print(f"Parents of {str_node(original_leaf)} : {parents}")
     return parents
     
 
-def verify(chi : bytes, n : int, root : str, challenges : list[int], reply : list[tuple[str, dict[str, str]]], H) -> bool:
+def verify(chi : bytes, n : int, root : str, challenges : list[Node], reply : list[tuple[str, dict[str, str]]], H) -> bool:
 
+    # verify all replies
     for i in range(len(challenges)):
-        leaf = (1 << n)  + challenges[i]
+        leaf = challenges[i]
         parents = get_parents(leaf, n)
-        label, path_labels = reply[i]
+        label, root_path_labels = reply[i]
         
         # verify if leaf label is correct
         parent_labels = []
         for parent in parents:
-            if parent not in path_labels:
-                print(f"Parent {parent} of node {str_node(leaf)} not in reply: {path_labels.keys()}")
+            # check if parent is in reply
+            if parent not in root_path_labels:
+                print(f"!!!Parent {parent} of node {str(leaf)} not in reply: {root_path_labels.keys()}")
                 return False
-            parent_labels.append(path_labels[parent])
+            parent_labels.append(root_path_labels[parent])
         
-        if label != H(chi, str_node(leaf), parent_labels):
-            print(f"Label of leaf  {str_node(leaf)} is incorrect.")
-            print(f"Expected {label} computed {H(chi, str_node(leaf), parent_labels)}.")
+        # bad hash
+        if label != H(chi, str(leaf), parent_labels):
+            print(f"!!!Label of leaf  {str(leaf)} is incorrect.")
+            print(f"!!!Expected {label} computed {H(chi, str(leaf), parent_labels)}.")
             return False
         
-        # verify if root is correct
+        # compute and verify if root is correct
         node = leaf
         for _ in range(n):
             sibling = node ^ 1
-            if node % 2 == 0:
-                parents = [label, path_labels[str_node(sibling)]]
+
+            # order siblings by the order of posw computation
+            if node.value % 2 == 0:
+                parents = [label, root_path_labels[str(sibling)]]
             else:
-                parents = [path_labels[str_node(sibling)], label]
+                parents = [root_path_labels[str(sibling)], label]
             
             node = node >> 1
-            label = H(chi, str_node(node), parents)
+            label = H(chi, str(node), parents)
 
-            # print(f"node = {str_node(node)} {label = }")
-            
         if label != root:
             print(f"{label = } {root = }")
-            print(f"Root is incorrect from leaf {str_node(leaf)}.")
+            print(f"!!!Root is incorrect from leaf {str(leaf)}.")
             return False
 
     return True
 
 
+"""
+N The time parameter which we assume is of the form N = 2n+1 − 1 for
+an integer n ∈ N.
+H : {0, 1} ≤ w(n+1) → {0, 1}
+w the hash function, which for the security proof
+is modelled as a random oracle, and which takes as inputs strings of
+length up to w(n + 1) bits.
+t A statistical security parameter.
+M Memory available to P, we assume it’s of the form
+M = (t + n · t + 1 + 2m+1)w
+"""
 
 def main():
-    # change to args
-    n = int(input("Tree depth n: "))
-    N = 1 << (n + 1) - 1
+    if len(sys.argv) < 4:
+        print(f"Usage: {sys.argv[0]} <tree depth \"n\"> <security parameter \"t\"> <memory depth \"m\"> [printer/sha256]")
+        sys.exit(1)
+    
+    n = int(sys.argv[1]) # Tree depth    
+    t = int(sys.argv[2]) # Security parameter (number of challenges)
+    m = int(sys.argv[3]) # Memory Tree Depth
 
-    w = 256
-    chi = get_random_bytes(w//8)
-    # chi = b'\xb3\x81\xa5\xaf\xb1\xee$\xb8\xc7JE\xc3"o\x08\xc4\x17(]\'\x07i|*\xb1\x1bB\xf3\xa0\x82\x03\''
-    #print(f"{chi}")
-    #chi = b'"\x94\xd0%\xd1:\xd6\xf9\x9d\xc4B\xf1e\xed\xda\x1bV\x94\xfc\xad=\xf9\xf6\x01\xf7\x07N\x061\x84O\x1b'
-    t = int(input("Security parameter t: "))
-    if ( t > 1 << n):
+    if (t < 0 or n < 0 or m < 0):
+        print(f"Parameters must be non negative integers")
+        print(f"Usage: {sys.argv[0]} <tree depth \"n\"> <security parameter \"t\"> <memory depth \"m\"> [printer/sha256]")
+        return 
+
+    if (t > (1 << n)):
         print("** Security parameter t lowered to number of leafs 2**n")
         t = 1 << n
         print(f"** Updated t to: {t}", )
-
-    m = int(input("Memory tree depth m: "))
     
+    if (m > n):
+        print("** Memory depth m lowered to tree depth n")
+        m = n
+        print(f"** Updated m to: {n}", )
+
+    w = 256
+    N = 1 << (n + 1) - 1
     M =  (t + n * t + 1 + 1 << (m+1)) * w
 
-    if input("printer mode(Y/n): " ).casefold() == "y":
+    chi = get_random_bytes(w//8)
+
+    if len(sys.argv) >= 5 and sys.argv[4].casefold() == "printer":
         hash_f = printer
     else:
         hash_f = sha256H
 
-    print("\nParameters: ")
+    print("\nUsing the following parameters: ")
     print(f"{n=}")
     print(f"{N=}")
     print(f"{t=}")
     print(f"{m=}")
-    print(f"{M=}\n")
+    print(f"{M=}")
+    print(f"{chi=}\n")
 
-    tree = posw(chi, n, m, hash_f)    
+    tree = posw(chi, n, m, hash_f)
+    print("DAG: " + mnel.dumps(tree, indent=2))
+    print("Root computed!\n")
 
-    print("Tree: " + mnel.dumps(tree, indent=2))
     challenge = generate_challenge(N, n, t)
-    #challenge = [3]
-    print(f"challenge: {list(map(bin, challenge))}")
-    #print(f"{challenge=}")
-    
+    print(f"Generated challenge: {challenge}\n")
 
     reply = open_nodes(chi, n, m, tree, challenge, hash_f)
-    print(f"{reply=}")
 
+    print("Reply: " + mnel.dumps(reply, indent=2))
+    print("Open computed!\n")
+
+    ROOT = "e"
     result = verify(chi, n, tree[ROOT], challenge, reply, hash_f)
     
     if (result):
         print("Verify succeeded")
     else:
         print("Verify failed")
-
 
 if __name__ == "__main__":
     main()
