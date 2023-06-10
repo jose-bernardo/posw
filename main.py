@@ -12,6 +12,7 @@ RandomOracleType = Callable[[bytes, str, list[str]], str]
 
 class Node:
     def __init__(self, value : int, size : int):
+        assert (size == 0 and value == 0) or  value < (1 << size)
         self.value = value
         self.size = size
 
@@ -57,7 +58,6 @@ class Node:
             return self.value >> (self.size - parent.size) == parent.value
         return False
 
-
 def sha256H(chi: bytes, node : str, labels : list[str]) -> str:
 
     m = sha256()
@@ -100,49 +100,6 @@ def posw(chi: bytes, n : int, m : int, H: RandomOracleType) -> dict[str, str]:
     
     return tree
 
-def dishonest_posw(chi: bytes, n : int, m : int, cheat_nodes : set[Node], H: RandomOracleType) -> dict[str, str]:
-    tree = {}
-    node = Node(0,n) # initial leaf {0}*n
-
-    label_stack = []
-    
-    while (node.size > 0):
-
-        for cheat_node in cheat_nodes:
-            # dishonest
-            if (node.is_child_of(cheat_node)):
-                label = H(chi, "banana" + str(cheat_node), ["banana"])
-                print(f"{node =}  is child of {cheat_node = }")
-                
-                if cheat_node.size <= m: # don't save if no memory
-                    tree[str(cheat_node)] = label
-                
-                label_stack.append(label)
-
-                node = cheat_node.next_node(n)
-                break
-        else:
-            # honest
-            if (node.size < n):
-                label = H(chi, str(node), label_stack[-2:])
-            else:
-                label = H(chi, str(node), label_stack)
-
-            if node.size <= m: # don't save if no memory
-                tree[str(node)] = label
-
-            if node.size < n:
-                label_stack.pop()
-                label_stack.pop()
-            
-            label_stack.append(label)
-
-            node = node.next_node(n)
-
-    label = H(chi, str(node), label_stack)
-    tree[str(node)] = label
-    
-    return tree
 def generate_challenge(N : int, n :int, t : int) -> list[int]:
     challenge = set()
     while len(challenge) < t:
@@ -212,7 +169,8 @@ def open_nodes(chi: bytes, n : int, m : int, tree: dict[str, str], challenge: li
     for i in range(len(missing_labels)):
 
         if len(missing_labels[i]) == 0:
-            initial_leaf += 1 << (n - m)
+            if i < len(missing_labels) - 1:
+                initial_leaf += 1 << (n - m)
             continue # sub tree not needed
 
         
@@ -235,7 +193,8 @@ def open_nodes(chi: bytes, n : int, m : int, tree: dict[str, str], challenge: li
         # computes missing labels in subtree
         optimized_posw(chi, n, tree, initial_stack, missing_labels[i], initial_leaf, H)
 
-        initial_leaf += 1 << (n - m)
+        if i < len(missing_labels) - 1:
+            initial_leaf += 1 << (n - m)
 
     # constructs replies to challenges
     reply = []
@@ -301,7 +260,6 @@ def verify(chi : bytes, n : int, root : str, challenges : list[Node], reply : li
 
         print(f"Commited root: {root}\nComputed root: {label}\n")
         if label != root:
-        
             print(f"!!!Root is incorrect from leaf {str(leaf)}.")
             return False
 
