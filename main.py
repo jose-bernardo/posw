@@ -51,6 +51,11 @@ class Node:
             return Node(self.value >> 1, self.size - 1)
         else:
             return Node((self.value + 1) << (max_depth - self.size), max_depth)
+        
+    def is_child_of(self, parent) -> bool:
+        if self.size >= parent.size:
+            return self.value >> (self.size - parent.size) == parent.value
+        return False
 
 
 def sha256H(chi: bytes, node : str, labels : list[str]) -> str:
@@ -95,6 +100,49 @@ def posw(chi: bytes, n : int, m : int, H: RandomOracleType) -> dict[str, str]:
     
     return tree
 
+def dishonest_posw(chi: bytes, n : int, m : int, cheat_nodes : set[Node], H: RandomOracleType) -> dict[str, str]:
+    tree = {}
+    node = Node(0,n) # initial leaf {0}*n
+
+    label_stack = []
+    
+    while (node.size > 0):
+
+        for cheat_node in cheat_nodes:
+            # dishonest
+            if (node.is_child_of(cheat_node)):
+                label = H(chi, "banana" + str(cheat_node), ["banana"])
+                print(f"{node =}  is child of {cheat_node = }")
+                
+                if cheat_node.size <= m: # don't save if no memory
+                    tree[str(cheat_node)] = label
+                
+                label_stack.append(label)
+
+                node = cheat_node.next_node(n)
+                break
+        else:
+            # honest
+            if (node.size < n):
+                label = H(chi, str(node), label_stack[-2:])
+            else:
+                label = H(chi, str(node), label_stack)
+
+            if node.size <= m: # don't save if no memory
+                tree[str(node)] = label
+
+            if node.size < n:
+                label_stack.pop()
+                label_stack.pop()
+            
+            label_stack.append(label)
+
+            node = node.next_node(n)
+
+    label = H(chi, str(node), label_stack)
+    tree[str(node)] = label
+    
+    return tree
 def generate_challenge(N : int, n :int, t : int) -> list[int]:
     challenge = set()
     while len(challenge) < t:
@@ -251,8 +299,9 @@ def verify(chi : bytes, n : int, root : str, challenges : list[Node], reply : li
             node = node >> 1
             label = H(chi, str(node), parents)
 
+        print(f"Commited root: {root}\nComputed root: {label}\n")
         if label != root:
-            print(f"{label = } {root = }")
+        
             print(f"!!!Root is incorrect from leaf {str(leaf)}.")
             return False
 
@@ -260,15 +309,15 @@ def verify(chi : bytes, n : int, root : str, challenges : list[Node], reply : li
 
 
 """
-N The time parameter which we assume is of the form N = 2n+1 − 1 for
+N The time parameter which we assume is of the form N = 2**(n+1) - 1 for
 an integer n ∈ N.
 H : {0, 1} ≤ w(n+1) → {0, 1}
 w the hash function, which for the security proof
 is modelled as a random oracle, and which takes as inputs strings of
 length up to w(n + 1) bits.
 t A statistical security parameter.
-M Memory available to P, we assume it’s of the form
-M = (t + n · t + 1 + 2m+1)w
+M Memory available to P, we assume it's of the form
+M = (t + n · t + 1 + 2**(m+1))w
 """
 
 def main():
@@ -315,6 +364,11 @@ def main():
     print(f"{chi=}\n")
 
     tree = posw(chi, n, m, hash_f)
+
+    # Dishonest WIP
+    # cheat_nodes = set()
+    # cheat_nodes.add(Node(1, m))
+    # tree = dishonest_posw(chi, n, m, cheat_nodes, hash_f)
     print("DAG: " + mnel.dumps(tree, indent=2))
     print("Root computed!\n")
 
