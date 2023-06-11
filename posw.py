@@ -15,17 +15,17 @@ class Node:
 
     def __add__(self, n : int):
         return Node(self.value + n, self.size)
-    
+
     def __xor__(self, n : int):
         return Node(self.value ^ n, self.size)
-  
+
     def __lshift__(self, n : int):
         return Node(self.value << n, self.size + n)
-  
+
     def __rshift__(self, n : int):
         assert n <= self.size
         return Node(self.value >> n, self.size - n)
-  
+
     def __mod__(self, n : int):
         assert n != 0
         return self.value % n
@@ -42,14 +42,14 @@ class Node:
         return bin(self.value)[2:2 + self.size].zfill(self.size)
 
     def __repr__(self):
-        return str(self)    
+        return str(self)
 
     def next_node(self, max_depth : int) -> tuple:
         if self.value % 2 == 1:
             return Node(self.value >> 1, self.size - 1)
         else:
             return Node((self.value + 1) << (max_depth - self.size), max_depth)
-        
+
     def is_child_of(self, parent) -> bool:
         if self.size >= parent.size:
             return self.value >> (self.size - parent.size) == parent.value
@@ -68,42 +68,12 @@ def printer(chi : bytes, node : str, labels : list[str]) -> str:
     string = node + "|" if labels else node
     return string + "|".join([label.split("|", 1)[0] for label in labels])
 
-def posw(chi: bytes, n : int, m : int, H: RandomOracleType) -> dict[str, str]:
-    tree = {}
-    node = Node(0,n) # initial leaf {0}*n
-
-    label_stack = []
-
-    while (node.size > 0):
-
-        if (node.size < n):
-            label = H(chi, str(node), label_stack[-2:])
-        else:
-            label = H(chi, str(node), label_stack)
-
-        if node.size <= m: # don't save if no memory
-            tree[str(node)] = label
-
-        if node.size < n:
-            label_stack.pop()
-            label_stack.pop()
-        
-        label_stack.append(label)
-
-        node = node.next_node(n)
-
-    label = H(chi, str(node), label_stack)
-    tree[str(node)] = label
-    
-    return tree
-
 def generate_challenge(N : int, n :int, t : int) -> list[int]:
     challenge = set()
     while len(challenge) < t:
         challenge.add(Node(randint(0, N - 1), n))
     return list(challenge)
 
-    
 def optimized_posw(chi : bytes, n : int, tree : dict[str, str], initial_stack: list[str], missing_labels : set[int], leaf : int, H: RandomOracleType) -> dict[str, str]:
     node = leaf
     label_stack = initial_stack
