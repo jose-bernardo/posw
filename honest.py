@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 from posw import Node, RandomOracleType
 from posw import generate_challenge, open_nodes, verify, printer, sha256H
 

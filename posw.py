@@ -74,7 +74,7 @@ def generate_challenge(N : int, n :int, t : int) -> list[int]:
         challenge.add(Node(randint(0, N - 1), n))
     return list(challenge)
 
-def optimized_posw(chi : bytes, n : int, tree : dict[str, str], initial_stack: list[str], missing_labels : set[int], leaf : int, H: RandomOracleType) -> dict[str, str]:
+def optimized_posw(chi : bytes, n : int, tree : dict[str, str], initial_stack: list[str], missing_labels : set[int], leaf : Node, H: RandomOracleType) -> dict[str, str]:
     node = leaf
     label_stack = initial_stack
 
@@ -85,28 +85,28 @@ def optimized_posw(chi : bytes, n : int, tree : dict[str, str], initial_stack: l
             label = H(chi, str(node), label_stack[-2:])
         else:
             label = H(chi, str(node), label_stack)
-    
+
         if node.size < n:
             label_stack.pop()
             label_stack.pop()
 
         label_stack.append(label)
-        
-        
+
+
         # needed label computed, remove from missing labels
         if str(node) in missing_labels: 
             tree[str(node)] = label
             missing_labels.remove(str(node))
 
         node = node.next_node(n)
-    
+
     return tree
 
 def open_nodes(chi: bytes, n : int, m : int, tree: dict[str, str], challenge: list[Node], H: RandomOracleType) -> list[tuple[str,dict[str, str]]]:
     
     # nodes needed to answer challenge
     dependencies = {}
-    
+
     # needed labels that are not in memory
     missing_labels = [set() for _ in range(1 << m)] 
 
@@ -115,14 +115,14 @@ def open_nodes(chi: bytes, n : int, m : int, tree: dict[str, str], challenge: li
         
         # track node dependencies and missing labels in the depth robust graph
         dependencies[str(leaf)] = []
-        
+
         node = leaf
         missing_labels[subtree].add(str(node))
-        
+
         # discover the path to root for each challenge
         for i in range(n):
             node ^= 1
-            
+
             dependencies[str(leaf)].append(str(node))
 
             # discover labels that were not saved in posw
@@ -138,15 +138,14 @@ def open_nodes(chi: bytes, n : int, m : int, tree: dict[str, str], challenge: li
         if len(missing_labels[i]) == 0:
             if i < len(missing_labels) - 1:
                 initial_leaf += 1 << (n - m)
-            continue # sub tree not needed
+            continue # sub tree not needed, go to the next subtree
 
-        
         # node parent of the subtree
         parent_node = Node(i, m)
         
         initial_stack = []
 
-        # get parents of first node of subtree
+        # get parents of initial node of subtree
         while(parent_node.size != 0):
 
             if parent_node % 2 == 1:
@@ -154,9 +153,7 @@ def open_nodes(chi: bytes, n : int, m : int, tree: dict[str, str], challenge: li
                 initial_stack.insert(0, tree[str(parent_node)])
 
             parent_node = parent_node >> 1
-        
 
-        
         # computes missing labels in subtree
         optimized_posw(chi, n, tree, initial_stack, missing_labels[i], initial_leaf, H)
 
@@ -207,7 +204,7 @@ def verify(chi : bytes, n : int, root : str, challenges : list[Node], reply : li
                 return False
             parent_labels.append(root_path_labels[parent])
         
-        # bad hash
+        # bad hash of leaf
         if label != H(chi, str(leaf), parent_labels):
             print(f"!!!Label of leaf  {str(leaf)} is incorrect.")
             print(f"!!!Expected {label} computed {H(chi, str(leaf), parent_labels)}.")
